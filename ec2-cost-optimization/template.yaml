@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Globals:
+  Function:
+    Timeout: 10
+    Tracing: Active
+    LoggingConfig:
+      LogFormat: JSON
+
+Resources:
+  EC2StartStopFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ec2-automation/
+      FunctionName: "EC2StartStopFunction"
+      Handler: app.lambdaHandler
+      Runtime: nodejs22.x
+      MemorySize: 128
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - ec2:StartInstances
+                - ec2:StopInstances
+                - ec2:DescribeInstances
+              Resource: "*"
+
+  StartEC2InstancesRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "StartEC2Instances"
+      ScheduleExpression: "cron(0 9 * * ? *)"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt EC2StartStopFunction.Arn
+          Id: "TargetLambda"
+          Input: '{"action": "start", "tags": {"env": "dev,test"}}'
+
+  StopEC2InstancesRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "StopEC2Instances"
+      ScheduleExpression: "cron(0 17 * * ? *)"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt EC2StartStopFunction.Arn
+          Id: "TargetLambda"
+          Input: '{"action": "stop", "tags": {"env": "dev,test"}}'
+
+  EventBridgeLambdaPermissionStart:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EC2StartStopFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt StartEC2InstancesRule.Arn
+
+  EventBridgeLambdaPermissionStop:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EC2StartStopFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt StopEC2InstancesRule.Arn
+
+Outputs:
+  LambdaFunctionArn:
+    Description: "Lambda Function ARN"
+    Value: !GetAtt EC2StartStopFunction.Arn
+
+  StartRuleName:
+    Description: "EventBridge rule to start EC2 instances"
+    Value: !Ref StartEC2InstancesRule
+
+  StopRuleName:
+    Description: "EventBridge rule to stop EC2 instances"
+    Value: !Ref StopEC2InstancesRule
